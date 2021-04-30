@@ -1,0 +1,72 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    compileSdkVersion 30
+    buildToolsVersion "30.0.2"
+
+    defaultConfig {
+        applicationId "com.rd.webrtctest"
+        minSdkVersion 23
+        targetSdkVersion 30
+        versionCode 1
+        versionName "1.0"
+        ndk {
+            abiFilters "armeabi-v7a"
+            // 如果您使用的是商业版，只能使用 armeabi 架构，即：
+            // abiFilters "armeabi",
+        }
+        javaCompileOptions {
+            annotationProcessorOptions {
+                arguments = [
+                        //Pass in RxJava version, can pass in RxJava2, RxJava3
+                        rxhttp_rxjava: 'rxjava3',
+                        rxhttp_package: 'rxhttp',   //Specifies the RxHttp class package
+                        AROUTER_MODULE_NAME: project.getName()
+                ]
+            }
+        }
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+
+    implementation 'androidx.appcompat:appcompat:1.2.0'
+    implementation 'com.google.android.material:material:1.2.1'
+    implementation 'androidx.constraintlayout:constraintlayout:2.0.4'
+//    implementation project(path: ':libwebrtc')
+    implementation 'org.webrtc:google-webrtc:1.0.+'
+    testImplementation 'junit:junit:4.+'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.2'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.3.0'
+
+    implementation 'com.hjq:xxpermissions:10.6'
+
+    implementation 'com.ljx.rxhttp:rxhttp:2.5.7'
+    implementation 'com.squareup.okhttp3:okhttp:4.9.1'
+    annotationProcessor 'com.ljx.rxhttp:rxhttp-compiler:2.5.7' //生成RxHttp类，纯Java项目，请使用annotationProcessor代替kapt
+    //rxjava3
+    implementation 'io.reactivex.rxjava3:rxjava:3.0.6'
+    implementation 'io.reactivex.rxjava3:rxandroid:3.0.0'
+    implementation 'com.ljx.rxlife3:rxlife-rxjava:3.0.0' //管理RxJava3生命周期，页面销毁，关闭请求
+
+    //lombok
+    compileOnly 'org.projectlombok:lombok:1.18.16'
+    annotationProcessor 'org.projectlombok:lombok:1.18.16'
+    //gson
+    implementation 'com.google.code.gson:gson:2.8.6'
+}
