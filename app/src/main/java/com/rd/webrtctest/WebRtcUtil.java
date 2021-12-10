@@ -6,6 +6,11 @@ import android.util.Log;
 
 import com.google.gson.Gson;
 
+import org.webrtc.AudioSource;
+import org.webrtc.AudioTrack;
+import org.webrtc.Camera1Enumerator;
+import org.webrtc.Camera2Enumerator;
+import org.webrtc.CameraEnumerator;
 import org.webrtc.DataChannel;
 import org.webrtc.DefaultVideoDecoderFactory;
 import org.webrtc.DefaultVideoEncoderFactory;
@@ -21,11 +26,15 @@ import org.webrtc.RtpReceiver;
 import org.webrtc.RtpTransceiver;
 import org.webrtc.SdpObserver;
 import org.webrtc.SessionDescription;
+import org.webrtc.SurfaceTextureHelper;
 import org.webrtc.SurfaceViewRenderer;
+import org.webrtc.VideoCapturer;
 import org.webrtc.VideoDecoderFactory;
 import org.webrtc.VideoEncoderFactory;
+import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
 import org.webrtc.audio.JavaAudioDeviceModule;
+import org.webrtc.voiceengine.WebRtcAudioUtils;
 
 import java.util.ArrayList;
 
@@ -51,11 +60,33 @@ public class WebRtcUtil implements PeerConnection.Observer, SdpObserver {
     private SurfaceViewRenderer surfaceViewRenderer;
     private PeerConnectionFactory peerConnectionFactory;
 
+    private AudioSource audioSource;
+    private VideoSource videoSource;
+    private AudioTrack localAudioTrack;
+    private VideoTrack localVideoTrack;
+    private VideoCapturer captureAndroid;
+    private SurfaceTextureHelper surfaceTextureHelper;
+    public static final String VIDEO_TRACK_ID = "ARDAMSv0";
+    public static final String AUDIO_TRACK_ID = "ARDAMSa0";
+    private boolean isShowCamera = false;
+    private static final int VIDEO_RESOLUTION_WIDTH = 1280;
+    private static final int VIDEO_RESOLUTION_HEIGHT = 720;
+    private static final int FPS = 30;
+    /**
+     * isPublish true为推流 false为拉流
+     */
+    private boolean isPublish;
+
     public void create(EglBase eglBase, SurfaceViewRenderer surfaceViewRenderer, String playUrl, WebRtcCallBack callBack) {
+        create(eglBase, surfaceViewRenderer, false, playUrl, callBack);
+    }
+
+    public void create(EglBase eglBase, SurfaceViewRenderer surfaceViewRenderer, boolean isPublish, String playUrl, WebRtcCallBack callBack) {
         this.eglBase = eglBase;
         this.surfaceViewRenderer = surfaceViewRenderer;
         this.callBack = callBack;
         this.playUrl = playUrl;
+        this.isPublish = isPublish;
 
         init(true);
     }
@@ -65,14 +96,46 @@ public class WebRtcUtil implements PeerConnection.Observer, SdpObserver {
         // NOTE: this _must_ happen while PeerConnectionFactory is alive!
         Logging.enableLogToDebugOutput(Logging.Severity.LS_VERBOSE);
 
-        if (!isShowVideo) {
-            peerConnection = peerConnectionFactory.createPeerConnection(getConfig(), this);
+        peerConnection = peerConnectionFactory.createPeerConnection(getConfig(), this);
+        MediaConstraints mediaConstraints = new MediaConstraints();
 
+        if (!isShowVideo) {
             //设置仅接收音视频
             peerConnection.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, new RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY));
             peerConnection.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, new RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY));
         }
-        peerConnection.createOffer(this, new MediaConstraints());
+        else {
+            //设置仅推送音视频
+            peerConnection.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, new RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_ONLY));
+            peerConnection.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, new RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_ONLY));
+
+            //设置回声去噪
+            WebRtcAudioUtils.setWebRtcBasedAcousticEchoCanceler(true);
+            WebRtcAudioUtils.setWebRtcBasedNoiseSuppressor(true);
+
+            // 音频
+            audioSource = peerConnectionFactory.createAudioSource(createAudioConstraints());
+            localAudioTrack = peerConnectionFactory.createAudioTrack(AUDIO_TRACK_ID, audioSource);
+            localAudioTrack.setEnabled(true);
+
+            peerConnection.addTrack(localAudioTrack);
+            //是否显示摄像头画面
+            if (isShowCamera) {
+                captureAndroid = createVideoCapture();
+                surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.getEglBaseContext());
+
+                videoSource = peerConnectionFactory.createVideoSource(false);
+
+                captureAndroid.initialize(surfaceTextureHelper, context, videoSource.getCapturerObserver());
+                captureAndroid.startCapture(VIDEO_RESOLUTION_WIDTH, VIDEO_RESOLUTION_HEIGHT, FPS);
+
+                localVideoTrack = peerConnectionFactory.createVideoTrack(VIDEO_TRACK_ID, videoSource);
+                localVideoTrack.setEnabled(true);
+
+                peerConnection.addTrack(localVideoTrack);
+            }
+        }
+        peerConnection.createOffer(this, mediaConstraints);
     }
 
     public void destroy() {
@@ -93,10 +156,82 @@ public class WebRtcUtil implements PeerConnection.Observer, SdpObserver {
         }
     }
 
+    private static final String AUDIO_ECHO_CANCELLATION_CONSTRAINT = "googEchoCancellation";
+    private static final String AUDIO_AUTO_GAIN_CONTROL_CONSTRAINT = "googAutoGainControl";
+    private static final String AUDIO_HIGH_PASS_FILTER_CONSTRAINT = "googHighpassFilter";
+    private static final String AUDIO_NOISE_SUPPRESSION_CONSTRAINT = "googNoiseSuppression";
+
+    /**
+     * 配置音频参数
+     * @return
+     */
+    private MediaConstraints createAudioConstraints() {
+        MediaConstraints audioConstraints = new MediaConstraints();
+        audioConstraints.mandatory.add(
+                new MediaConstraints.KeyValuePair(AUDIO_ECHO_CANCELLATION_CONSTRAINT, "true"));
+        audioConstraints.mandatory.add(
+                new MediaConstraints.KeyValuePair(AUDIO_AUTO_GAIN_CONTROL_CONSTRAINT, "false"));
+        audioConstraints.mandatory.add(
+                new MediaConstraints.KeyValuePair(AUDIO_HIGH_PASS_FILTER_CONSTRAINT, "false"));
+        audioConstraints.mandatory.add(
+                new MediaConstraints.KeyValuePair(AUDIO_NOISE_SUPPRESSION_CONSTRAINT, "true"));
+        return audioConstraints;
+    }
+
+    /**
+     * 创建媒体方式
+     *
+     * @return VideoCapturer
+     */
+    private VideoCapturer createVideoCapture() {
+        VideoCapturer videoCapturer;
+
+        if (Camera2Enumerator.isSupported(context)) {
+            videoCapturer = createCameraCapture(new Camera2Enumerator(context));
+        } else {
+            videoCapturer = createCameraCapture(new Camera1Enumerator(true));
+        }
+        return videoCapturer;
+    }
+
+    /**
+     * 创建相机媒体流
+     */
+    private VideoCapturer createCameraCapture(CameraEnumerator enumerator) {
+        final String[] deviceNames = enumerator.getDeviceNames();
+
+        // First, try to find front facing camera
+        for (String deviceName : deviceNames) {
+            if (enumerator.isFrontFacing(deviceName)) {
+                VideoCapturer videoCapturer = enumerator.createCapturer(deviceName, null);
+
+                if (videoCapturer != null) {
+                    return videoCapturer;
+                }
+            }
+        }
+
+        // Front facing camera not found, try something else
+        for (String deviceName : deviceNames) {
+            if (!enumerator.isFrontFacing(deviceName)) {
+                VideoCapturer videoCapturer = enumerator.createCapturer(deviceName, null);
+
+                if (videoCapturer != null) {
+                    return videoCapturer;
+                }
+            }
+        }
+
+        return null;
+    }
+
     private int reConnCount;
     private final int MAX_CONN_COUNT = 10;
 
     public void openWebRtc(String sdp) {
+        //isPublish true时xxxx的url后缀应为publish false时xxxx的url后缀为play
+        //例: "https://www.baidu.com/rtc/v1/publish" : "https://www.baidu.com/rtc/v1/play"
+        //请求的url和api的参数为同一个内容
         RxHttp.postJson("xxxx")
                 .add("api", "xxxx")
                 .add("streamurl", playUrl)
@@ -165,12 +300,7 @@ public class WebRtcUtil implements PeerConnection.Observer, SdpObserver {
 
     private PeerConnection.RTCConfiguration getConfig() {
         PeerConnection.RTCConfiguration rtcConfig = new PeerConnection.RTCConfiguration(new ArrayList<>());
-        rtcConfig.tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.ENABLED;
-        rtcConfig.bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE;
-        rtcConfig.rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.NEGOTIATE;
-        rtcConfig.continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY;
-        rtcConfig.keyType = PeerConnection.KeyType.ECDSA;
-        rtcConfig.enableDtlsSrtp = true;
+        //关闭分辨率变换
         rtcConfig.enableCpuOveruseDetection = false;
         //修改模式 PlanB无法使用仅接收音视频的配置
         rtcConfig.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN;
