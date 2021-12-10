@@ -1,1 +1,1 @@
-# Android使用webrtc仅拉流播放demo
+# Android使用webrtc推拉流播放demo
