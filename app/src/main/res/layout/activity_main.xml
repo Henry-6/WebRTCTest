@@ -6,13 +6,89 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
+    <EditText
+        android:id="@+id/ed1"
+        android:inputType="text"
+        android:lines="1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
+
+    <RadioGroup
+        android:id="@+id/rg1"
+        android:layout_below="@id/ed1"
+        android:orientation="horizontal"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content">
+
+        <RadioButton
+            android:id="@+id/rbPushAudio"
+            android:text="音频"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+
+        <RadioButton
+            android:id="@+id/rbPushVideo"
+            android:text="视频"
+            android:checked="true"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </RadioGroup>
+
+    <Button
+        android:layout_alignParentEnd="true"
+        android:layout_below="@id/ed1"
+        android:onClick="doPush"
+        android:text="push"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
+
     <org.webrtc.SurfaceViewRenderer
         android:id="@+id/activity_main_svr_video"
+        android:layout_below="@id/rg1"
+        android:layout_width="160dp"
+        android:layout_height="120dp" />
+
+    <EditText
+        android:id="@+id/ed2"
+        android:inputType="text"
+        android:lines="1"
+        android:layout_below="@id/activity_main_svr_video"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
+
+    <RadioGroup
+        android:id="@+id/rg2"
+        android:layout_below="@id/ed2"
+        android:orientation="horizontal"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintLeft_toLeftOf="parent"
-        app:layout_constraintRight_toRightOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        android:layout_height="wrap_content">
+
+        <RadioButton
+            android:id="@+id/rbPlayAudio"
+            android:text="音频"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+
+        <RadioButton
+            android:id="@+id/rbPlayVideo"
+            android:text="视频"
+            android:checked="true"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </RadioGroup>
+
+    <Button
+        android:layout_alignParentEnd="true"
+        android:layout_below="@id/ed2"
+        android:onClick="doPlay"
+        android:text="play"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
+
+    <org.webrtc.SurfaceViewRenderer
+        android:id="@+id/activity_main_svr_video1"
+        android:layout_below="@id/rg2"
+        android:layout_width="160dp"
+        android:layout_height="120dp" />
 
 </RelativeLayout>

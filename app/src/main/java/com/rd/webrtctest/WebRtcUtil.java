@@ -8,9 +8,6 @@ import com.google.gson.Gson;
 
 import org.webrtc.AudioSource;
 import org.webrtc.AudioTrack;
-import org.webrtc.Camera1Enumerator;
-import org.webrtc.Camera2Enumerator;
-import org.webrtc.CameraEnumerator;
 import org.webrtc.DataChannel;
 import org.webrtc.DefaultVideoDecoderFactory;
 import org.webrtc.DefaultVideoEncoderFactory;
@@ -23,6 +20,7 @@ import org.webrtc.MediaStreamTrack;
 import org.webrtc.PeerConnection;
 import org.webrtc.PeerConnectionFactory;
 import org.webrtc.RtpReceiver;
+import org.webrtc.RtpSender;
 import org.webrtc.RtpTransceiver;
 import org.webrtc.SdpObserver;
 import org.webrtc.SessionDescription;
@@ -88,18 +86,29 @@ public class WebRtcUtil implements PeerConnection.Observer, SdpObserver {
         this.playUrl = playUrl;
         this.isPublish = isPublish;
 
-        init(true);
+        init();
     }
 
-    private void init(boolean isShowVideo) {
+    public void create(EglBase eglBase, SurfaceViewRenderer surfaceViewRenderer, boolean isPublish, boolean isShowCamera, String playUrl, WebRtcCallBack callBack) {
+        this.eglBase = eglBase;
+        this.surfaceViewRenderer = surfaceViewRenderer;
+        this.callBack = callBack;
+        this.playUrl = playUrl;
+        this.isPublish = isPublish;
+        this.isShowCamera = isShowCamera;
+
+        init();
+    }
+
+    private void init() {
         peerConnectionFactory = getPeerConnectionFactory(context);
         // NOTE: this _must_ happen while PeerConnectionFactory is alive!
-        Logging.enableLogToDebugOutput(Logging.Severity.LS_VERBOSE);
+        Logging.enableLogToDebugOutput(Logging.Severity.LS_NONE);
 
         peerConnection = peerConnectionFactory.createPeerConnection(getConfig(), this);
         MediaConstraints mediaConstraints = new MediaConstraints();
 
-        if (!isShowVideo) {
+        if (!isPublish) {
             //设置仅接收音视频
             peerConnection.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, new RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY));
             peerConnection.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, new RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY));
@@ -121,7 +130,7 @@ public class WebRtcUtil implements PeerConnection.Observer, SdpObserver {
             peerConnection.addTrack(localAudioTrack);
             //是否显示摄像头画面
             if (isShowCamera) {
-                captureAndroid = createVideoCapture();
+                captureAndroid = CameraUtil.createVideoCapture(context);
                 surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.getEglBaseContext());
 
                 videoSource = peerConnectionFactory.createVideoSource(false);
@@ -131,7 +140,11 @@ public class WebRtcUtil implements PeerConnection.Observer, SdpObserver {
 
                 localVideoTrack = peerConnectionFactory.createVideoTrack(VIDEO_TRACK_ID, videoSource);
                 localVideoTrack.setEnabled(true);
-
+                if (surfaceViewRenderer != null) {
+                    ProxyVideoSink videoSink = new ProxyVideoSink();
+                    videoSink.setTarget(surfaceViewRenderer);
+                    localVideoTrack.addSink(videoSink);
+                }
                 peerConnection.addTrack(localVideoTrack);
             }
         }
@@ -142,13 +155,20 @@ public class WebRtcUtil implements PeerConnection.Observer, SdpObserver {
         if (callBack != null) {
             callBack = null;
         }
-        if (surfaceViewRenderer != null) {
-            surfaceViewRenderer.release();
-            surfaceViewRenderer = null;
-        }
         if (peerConnection != null) {
-            peerConnection.close();
+            peerConnection.dispose();
             peerConnection = null;
+        }
+        if (surfaceTextureHelper != null) {
+            surfaceTextureHelper.dispose();
+            surfaceTextureHelper = null;
+        }
+        if (captureAndroid != null) {
+            captureAndroid.dispose();
+            captureAndroid = null;
+        }
+        if (surfaceViewRenderer != null) {
+            surfaceViewRenderer.clearImage();
         }
         if (peerConnectionFactory != null) {
             peerConnectionFactory.dispose();
@@ -178,52 +198,6 @@ public class WebRtcUtil implements PeerConnection.Observer, SdpObserver {
         return audioConstraints;
     }
 
-    /**
-     * 创建媒体方式
-     *
-     * @return VideoCapturer
-     */
-    private VideoCapturer createVideoCapture() {
-        VideoCapturer videoCapturer;
-
-        if (Camera2Enumerator.isSupported(context)) {
-            videoCapturer = createCameraCapture(new Camera2Enumerator(context));
-        } else {
-            videoCapturer = createCameraCapture(new Camera1Enumerator(true));
-        }
-        return videoCapturer;
-    }
-
-    /**
-     * 创建相机媒体流
-     */
-    private VideoCapturer createCameraCapture(CameraEnumerator enumerator) {
-        final String[] deviceNames = enumerator.getDeviceNames();
-
-        // First, try to find front facing camera
-        for (String deviceName : deviceNames) {
-            if (enumerator.isFrontFacing(deviceName)) {
-                VideoCapturer videoCapturer = enumerator.createCapturer(deviceName, null);
-
-                if (videoCapturer != null) {
-                    return videoCapturer;
-                }
-            }
-        }
-
-        // Front facing camera not found, try something else
-        for (String deviceName : deviceNames) {
-            if (!enumerator.isFrontFacing(deviceName)) {
-                VideoCapturer videoCapturer = enumerator.createCapturer(deviceName, null);
-
-                if (videoCapturer != null) {
-                    return videoCapturer;
-                }
-            }
-        }
-
-        return null;
-    }
 
     private int reConnCount;
     private final int MAX_CONN_COUNT = 10;
@@ -232,14 +206,15 @@ public class WebRtcUtil implements PeerConnection.Observer, SdpObserver {
         //isPublish true时xxxx的url后缀应为publish false时xxxx的url后缀为play
         //例: "https://www.baidu.com/rtc/v1/publish" : "https://www.baidu.com/rtc/v1/play"
         //请求的url和api的参数为同一个内容
-        RxHttp.postJson("xxxx")
-                .add("api", "xxxx")
-                .add("streamurl", playUrl)
-                .add("clientip", null)
-                .add("sdp", sdp)
+        RxHttp.postBody(playUrl, sdp)
+//                .add("app", "live")
+//                .add("stream", "test")
+//                .add("type", isPublish ? "push" : "play")
+                .setBody(sdp, null)
                 .asString()
                 .subscribe(s -> {
-                    Log.e("WebRtc流", "地址:" + playUrl + s);
+                    s = s.replaceAll("\n", "");
+                    Log.e("WebRtc流", "是否推流: " + isPublish + "  地址:" + playUrl + s);
                     if (!TextUtils.isEmpty(s)) {
                         SdpBean sdpBean = new Gson().fromJson(s, SdpBean.class);
                         if (sdpBean.getCode() == 400) {
@@ -256,8 +231,10 @@ public class WebRtcUtil implements PeerConnection.Observer, SdpObserver {
     }
 
     public void setRemoteSdp(String sdp) {
-        SessionDescription remoteSpd = new SessionDescription(SessionDescription.Type.ANSWER, sdp);
-        peerConnection.setRemoteDescription(this, remoteSpd);
+        if (peerConnection != null) {
+            SessionDescription remoteSpd = new SessionDescription(SessionDescription.Type.ANSWER, sdp);
+            peerConnection.setRemoteDescription(this, remoteSpd);
+        }
     }
 
     public interface WebRtcCallBack {
@@ -390,7 +367,7 @@ public class WebRtcUtil implements PeerConnection.Observer, SdpObserver {
         if (track instanceof VideoTrack) {
             VideoTrack remoteVideoTrack = (VideoTrack) track;
             remoteVideoTrack.setEnabled(true);
-            if (surfaceViewRenderer != null) {
+            if (surfaceViewRenderer != null && isShowCamera) {
                 ProxyVideoSink videoSink = new ProxyVideoSink();
                 videoSink.setTarget(surfaceViewRenderer);
                 remoteVideoTrack.addSink(videoSink);

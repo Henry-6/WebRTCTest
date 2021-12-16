@@ -15,6 +15,6 @@ public class App extends Application {
         super.onCreate();
 
 
-        RxHttp.setDebug(true);
+        RxHttp.setDebug(false);
     }
 }
